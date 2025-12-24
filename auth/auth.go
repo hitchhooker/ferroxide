@@ -15,6 +15,7 @@ import (
 
 	"github.com/acheong08/ferroxide/config"
 	"github.com/acheong08/ferroxide/protonmail"
+	"github.com/acheong08/ferroxide/tpm"
 )
 
 func authFilePath() (string, error) {
@@ -165,6 +166,39 @@ func GeneratePassword() (secretKey *[32]byte, password string, err error) {
 	}
 	password = base64.StdEncoding.EncodeToString(key[:])
 	return &key, password, nil
+}
+
+// GenerateAndSealPassword creates a new secret key and seals it to TPM.
+func GenerateAndSealPassword(username string) (secretKey *[32]byte, err error) {
+	if !tpm.IsAvailable() {
+		return nil, fmt.Errorf("tpm not available")
+	}
+
+	var key [32]byte
+	if _, err = io.ReadFull(rand.Reader, key[:]); err != nil {
+		return nil, fmt.Errorf("failed to generate key: %v", err)
+	}
+
+	if err := tpm.SealKey(username, &key); err != nil {
+		return nil, fmt.Errorf("failed to seal key: %v", err)
+	}
+
+	return &key, nil
+}
+
+// GetSealedPassword retrieves a secret key from TPM.
+func GetSealedPassword(username string) (*[32]byte, error) {
+	return tpm.UnsealKey(username)
+}
+
+// HasTPMKey checks if a user has a TPM-sealed key.
+func HasTPMKey(username string) bool {
+	return tpm.HasSealedKey(username)
+}
+
+// TPMAvailable returns true if TPM is present on the system.
+func TPMAvailable() bool {
+	return tpm.IsAvailable()
 }
 
 type session struct {

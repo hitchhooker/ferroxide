@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/tls"
+	"encoding/base64"
 	"flag"
 	"fmt"
 	"io"
@@ -45,6 +46,7 @@ var (
 	appVersion  string
 	proxyURL    string
 	tor         bool
+	useTPM      bool
 )
 
 func makeHTTPClientFromProxy(proxyArg string) (*http.Client, error) {
@@ -126,6 +128,19 @@ func askBridgePass() (string, error) {
 	}
 	b, err := askPass("Bridge password")
 	return string(b), err
+}
+
+// getBridgePassForUser tries TPM first, then falls back to asking.
+func getBridgePassForUser(username string) (string, error) {
+	if auth.HasTPMKey(username) {
+		key, err := auth.GetSealedPassword(username)
+		if err != nil {
+			log.Printf("Warning: TPM unseal failed: %v, falling back to password", err)
+		} else {
+			return base64.StdEncoding.EncodeToString(key[:]), nil
+		}
+	}
+	return askBridgePass()
 }
 
 func listenAndServeSMTP(addr string, debug bool, authManager *auth.Manager, tlsConfig *tls.Config) error {
@@ -316,6 +331,7 @@ func main() {
 	configHome := flag.String("config-home", "", "Path to the directory where ferroxide stores its configuration")
 	flag.StringVar(&proxyURL, "proxy-url", "", "HTTP proxy URL (e.g. socks5://127.0.0.1:1080)")
 	flag.BoolVar(&tor, "tor", false, "If set, connect to ProtonMail over Tor")
+	flag.BoolVar(&useTPM, "tpm", false, "Seal bridge password to TPM (no password needed)")
 
 	authCmd := flag.NewFlagSet("auth", flag.ExitOnError)
 	exportSecretKeysCmd := flag.NewFlagSet("export-secret-keys", flag.ExitOnError)
@@ -432,9 +448,23 @@ func main() {
 			log.Fatal(err)
 		}
 
-		secretKey, bridgePassword, err := auth.GeneratePassword()
-		if err != nil {
-			log.Fatal(err)
+		var secretKey *[32]byte
+		var bridgePassword string
+
+		if useTPM {
+			if !auth.TPMAvailable() {
+				log.Fatal("TPM requested but not available")
+			}
+			secretKey, err = auth.GenerateAndSealPassword(username)
+			if err != nil {
+				log.Fatal(err)
+			}
+			fmt.Println("Bridge password sealed to TPM")
+		} else {
+			secretKey, bridgePassword, err = auth.GeneratePassword()
+			if err != nil {
+				log.Fatal(err)
+			}
 		}
 
 		err = auth.EncryptAndSave(&auth.CachedAuth{
@@ -447,19 +477,32 @@ func main() {
 			log.Fatal(err)
 		}
 
-		fmt.Println("Bridge password:", bridgePassword)
+		if !useTPM {
+			fmt.Println("Bridge password:", bridgePassword)
+		}
 	case "status":
 		usernames, err := auth.ListUsernames()
 		if err != nil {
 			log.Fatal(err)
 		}
 
+		if auth.TPMAvailable() {
+			fmt.Println("TPM: available")
+		} else {
+			fmt.Println("TPM: not available")
+		}
+		fmt.Println()
+
 		if len(usernames) == 0 {
 			fmt.Printf("No logged in user.\n")
 		} else {
 			fmt.Printf("%v logged in user(s):\n", len(usernames))
 			for _, u := range usernames {
-				fmt.Printf("- %v\n", u)
+				tpmStatus := ""
+				if auth.HasTPMKey(u) {
+					tpmStatus = " [tpm]"
+				}
+				fmt.Printf("- %v%s\n", u, tpmStatus)
 			}
 		}
 	case "export-secret-keys":
@@ -469,7 +512,7 @@ func main() {
 			log.Fatal("usage: ferroxide export-secret-keys <username>")
 		}
 
-		bridgePassword, err := askBridgePass()
+		bridgePassword, err := getBridgePassForUser(username)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -510,7 +553,7 @@ func main() {
 			defer f.Close()
 		}
 
-		bridgePassword, err := askBridgePass()
+		bridgePassword, err := getBridgePassForUser(username)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -552,7 +595,7 @@ func main() {
 			log.Fatal("usage: ferroxide export-messages [-conversation-id <id>] [-message-id <id>] <username>")
 		}
 
-		bridgePassword, err := askBridgePass()
+		bridgePassword, err := getBridgePassForUser(username)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -640,7 +683,7 @@ func main() {
 		sendmailCmd.Parse(flag.Args()[3:])
 		rcpt := sendmailCmd.Args()
 
-		bridgePassword, err := askBridgePass()
+		bridgePassword, err := getBridgePassForUser(username)
 		if err != nil {
 			log.Fatal(err)
 		}
