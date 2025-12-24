@@ -137,6 +137,7 @@ func Seal(data []byte) ([]byte, error) {
 	createCmd := tpm2.Create{
 		ParentHandle: tpm2.AuthHandle{
 			Handle: primaryRsp.ObjectHandle,
+			Name:   primaryRsp.Name,
 			Auth:   tpm2.PasswordAuth(nil),
 		},
 		InPublic: tpm2.New2B(sealedTemplate),
@@ -216,6 +217,7 @@ func Unseal(blob []byte) ([]byte, error) {
 	loadCmd := tpm2.Load{
 		ParentHandle: tpm2.AuthHandle{
 			Handle: primaryRsp.ObjectHandle,
+			Name:   primaryRsp.Name,
 			Auth:   tpm2.PasswordAuth(nil),
 		},
 		InPrivate: tpm2.TPM2BPrivate{Buffer: privBytes},
@@ -235,6 +237,7 @@ func Unseal(blob []byte) ([]byte, error) {
 	unsealCmd := tpm2.Unseal{
 		ItemHandle: tpm2.AuthHandle{
 			Handle: loadRsp.ObjectHandle,
+			Name:   loadRsp.Name,
 			Auth:   tpm2.PasswordAuth(authValue),
 		},
 	}

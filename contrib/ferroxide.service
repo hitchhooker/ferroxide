@@ -1,0 +1,27 @@
+[Unit]
+Description=Ferroxide ProtonMail Bridge
+Documentation=https://github.com/hitchhooker/ferroxide
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/ferroxide serve
+Restart=on-failure
+RestartSec=5
+
+# security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.config/ferroxide
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+
+# tpm access
+DeviceAllow=/dev/tpmrm0 rw
+DeviceAllow=/dev/tpm0 rw
+
+[Install]
+WantedBy=default.target

@@ -32,6 +32,12 @@ func SealKey(username string, key *[32]byte) error {
 		return err
 	}
 
+	// ensure directory exists
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return err
+	}
+
 	return os.WriteFile(path, sealed, 0600)
 }
 
