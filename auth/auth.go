@@ -216,11 +216,28 @@ type Manager struct {
 
 func (m *Manager) Auth(username, password string) (*protonmail.Client, openpgp.EntityList, error) {
 	var secretKey [32]byte
-	passwordBytes, err := base64.StdEncoding.DecodeString(password)
-	if err != nil || len(passwordBytes) != len(secretKey) {
-		return nil, nil, ErrUnauthorized
+
+	// try TPM first if available for this user
+	if tpm.HasSealedKey(username) {
+		tpmKey, err := tpm.UnsealKey(username)
+		if err == nil {
+			copy(secretKey[:], tpmKey[:])
+		} else {
+			// TPM failed, fall back to password
+			passwordBytes, err := base64.StdEncoding.DecodeString(password)
+			if err != nil || len(passwordBytes) != len(secretKey) {
+				return nil, nil, ErrUnauthorized
+			}
+			copy(secretKey[:], passwordBytes)
+		}
+	} else {
+		// no TPM key, use password
+		passwordBytes, err := base64.StdEncoding.DecodeString(password)
+		if err != nil || len(passwordBytes) != len(secretKey) {
+			return nil, nil, ErrUnauthorized
+		}
+		copy(secretKey[:], passwordBytes)
 	}
-	copy(secretKey[:], passwordBytes)
 
 	s, ok := m.sessions[username]
 	if ok {
